@@ -1,4 +1,4 @@
-# 10. Testing and Validation
+# Testing and Validation
 
 ## Overview
 
