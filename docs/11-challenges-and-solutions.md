@@ -1,4 +1,4 @@
-# 11. Challenges and Solutions
+# Challenges and Solutions
 
 ## Overview
 
