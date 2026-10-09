@@ -1,0 +1,202 @@
+#include <Arduino.h>
+#include "EmotiBit.h"
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <time.h>   // for NTP & ISO timestamp
+
+// ---------- Wi-Fi ----------
+const char* ssid = "wifi id";
+const char* password = "wifi password";
+
+// ---------- MQTT ----------
+const char* mqtt_server = "your mqtt server link.hivemq.cloud";
+const int   mqtt_port   = "port";
+const char* mqtt_user   = "username";
+const char* mqtt_pass   = "password";
+
+// ---------- MQTT client setup ----------
+WiFiClientSecure espClient;
+PubSubClient client(espClient);
+
+// ---------- EmotiBit setup ----------
+EmotiBit emotibit;
+const size_t dataSize = EmotiBit::MAX_DATA_BUFFER_SIZE;
+float data[dataSize];
+
+// ---------- Sensor list including EDR (total 17) ----------
+struct Sensor {
+  EmotiBit::DataType type;
+  const char* name;
+};
+
+Sensor sensors[17] = {
+  {EmotiBit::DataType::PPG_INFRARED, "PPG_INFRARED"},
+  {EmotiBit::DataType::PPG_RED, "PPG_RED"},
+  {EmotiBit::DataType::PPG_GREEN, "PPG_GREEN"},
+  {EmotiBit::DataType::EDA, "EDA"},
+  {EmotiBit::DataType::EDL, "EDL"},
+  {EmotiBit::DataType::EDR, "EDR"},                
+  {EmotiBit::DataType::TEMPERATURE_1, "TEMP_1"},
+  {EmotiBit::DataType::THERMOPILE, "THERMOPILE"},
+  {EmotiBit::DataType::ACCELEROMETER_X, "ACC_X"},
+  {EmotiBit::DataType::ACCELEROMETER_Y, "ACC_Y"},
+  {EmotiBit::DataType::ACCELEROMETER_Z, "ACC_Z"},
+  {EmotiBit::DataType::GYROSCOPE_X, "GYRO_X"},
+  {EmotiBit::DataType::GYROSCOPE_Y, "GYRO_Y"},
+  {EmotiBit::DataType::GYROSCOPE_Z, "GYRO_Z"},
+  {EmotiBit::DataType::MAGNETOMETER_X, "MAG_X"},
+  {EmotiBit::DataType::MAGNETOMETER_Y, "MAG_Y"},
+  {EmotiBit::DataType::MAGNETOMETER_Z, "MAG_Z"}
+};
+
+// Variable to store the last sent ISO String for each sensor to control frequency
+String lastSentISO[17]; 
+
+// ---------- Wi-Fi connect ----------
+void setupWiFi() {
+  Serial.print("Connecting to Wi-Fi ");
+  Serial.println(ssid);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  espClient.setInsecure(); // Required for HiveMQ Cloud without loading certs
+
+  // Timeout counter to prevent infinite loop if WiFi is down
+  int retries = 0;
+  while (WiFi.status() != WL_CONNECTED && retries < 20) {
+    delay(500);
+    Serial.print(".");
+    retries++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✅ Wi-Fi connected!");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\n❌ Wi-Fi Connection Failed.");
+  }
+}
+
+// ---------- NTP & ISO timestamp ----------
+void setupTime() {
+  configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov"); // UTC+8 for Malaysia
+  Serial.println("Waiting for NTP time...");
+  
+  time_t now = time(nullptr);
+  int retries = 0;
+  // Wait up to 10 seconds for time
+  while (now < 24 * 3600 && retries < 20) {
+    delay(500);
+    Serial.print(".");
+    now = time(nullptr);
+    retries++;
+  }
+  Serial.println("\n✅ NTP time check done.");
+}
+
+String getISOTime() {
+  time_t now = time(nullptr);
+  struct tm timeinfo;
+  if(!localtime_r(&now, &timeinfo)){
+    return "N/A";
+  }
+
+  char buf[30];
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d",
+           timeinfo.tm_year + 1900,
+           timeinfo.tm_mon + 1,
+           timeinfo.tm_mday,
+           timeinfo.tm_hour,
+           timeinfo.tm_min,
+           timeinfo.tm_sec);
+  return String(buf);
+}
+
+// ---------- MQTT reconnect ----------
+void reconnectMQTT() {
+  // Loop until we're reconnected
+  // (We use a non-blocking check in loop usually, but for simplicity here:)
+  if (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    espClient.setInsecure();
+    
+    String clientId = "ESP32_EmotiBit_Client_";
+    clientId += String(random(0xffff), HEX);
+
+    if (client.connect(clientId.c_str(), mqtt_user, mqtt_pass)) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 2 seconds");
+      delay(2000); // Short delay before retry
+    }
+  }
+}
+
+// ---------- Setup ----------
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  // --- CRITICAL FIX: EmotiBit Setup MUST happen first ---
+  // This triggers the power latch so the board stays ON.
+  emotibit.setup("ESP32_16para"); 
+  Serial.println("✅ EmotiBit initialized (Power Latch Active)");
+  // -----------------------------------------------------
+
+  setupWiFi();
+  setupTime();
+
+  client.setServer(mqtt_server, mqtt_port);
+  client.setKeepAlive(60);
+  client.setBufferSize(512);
+
+  Serial.println("✅ System Ready.");
+}
+
+// ---------- Loop ----------
+void loop() {
+  emotibit.update(); // Must run frequently to read sensors
+
+  if (!client.connected()) {
+    reconnectMQTT();
+  }
+  client.loop();
+
+  for (int i = 0; i < 17; i++) {
+    size_t samplesAvailable = emotibit.readData(sensors[i].type, data, dataSize);
+
+    if (samplesAvailable > 0) {
+      // Get current timestamp
+      String currentTs = getISOTime();
+
+      // LOGIC FIX: Compare Strings correctly
+      // This ensures we send data only when the second changes (1Hz)
+      if (currentTs != lastSentISO[i]) {
+        lastSentISO[i] = currentTs; // Update last sent time
+
+        char payload[100];
+        // data[0] is usually the most recent sample in the buffer
+        snprintf(payload, sizeof(payload), "%s,%.5f", currentTs.c_str(), data[0]);
+
+        String topic = String("emotibit/") + sensors[i].name;
+
+        if (client.publish(topic.c_str(), payload)) {
+          Serial.print("-> ");
+          Serial.print(topic);
+          Serial.println(" sent");
+        } 
+        
+        // Tiny delay to prevent flooding the MQTT buffer too fast
+        delay(2); 
+      }
+    }
+  }
+  
+  // Removed big delay(30) to allow emotibit.update() to run smoothly
+}
+
+
