@@ -1,0 +1,44 @@
+ContentType="application/json", Accept="application/json", Body=json.dumps(features) )
+    result = json.loads(response["Body"].read().decode("utf-8"))
+    print("SageMaker result:", result)
+
+except Exception as e:
+    print("SageMaker invoke failed:", str(e))
+    raise
+
+probs = result.get("probabilities", {})
+
+item = {
+    "device_id": device_id,
+    "timestamp": timestamp,
+    "predicted_emotion": result.get("predicted_emotion", "unknown"),
+    "confidence": d(result.get("confidence", 0)),
+
+    "happy_probability": d(probs.get("happy", 0)),
+    "nervous_probability": d(probs.get("nervous", 0)),
+    "neutral_probability": d(probs.get("neutral", 0)),
+    "sad_probability": d(probs.get("sad", 0)),
+    "angry_probability": d(probs.get("angry", 0)),
+
+    "model_version": "your model name",
+    "records_used": len(decoded)
+}
+
+print("DynamoDB item:", item)
+
+try:
+    pred_table.put_item(Item=item)
+    print("Prediction stored successfully.")
+
+except Exception as e:
+    print("DynamoDB put_item failed:", str(e))
+    raise
+
+return {
+    "statusCode": 200,
+    "body": json.dumps({
+        "message": "5-emotion prediction stored successfully",
+        "prediction": result,
+        "records_used": len(decoded)
+    })
+}
