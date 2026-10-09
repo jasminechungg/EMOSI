@@ -160,36 +160,63 @@ See [`dashboard/`](dashboard/) for the dashboard code and [`docs/08-dashboard-de
 
 ## Repository Structure
 
-The repository is organised into the following directories:
+The repository is organised into several directories to separate the ESP32 code, AWS implementation, dashboard, datasets, documentation, and visual references.
 
 ```text
 EMOSI/
-├── README.md
 ├── code/
+│   ├── aws/
+│   │   ├── sagemaker/
+│   │   │   └── README.md
+│   │   ├── lambda/
+│   │   └── dashboard/
+│   │       ├── prototype/
+│   │       └── README.md
 │   └── esp32/
-├── dashboard/
+│       ├── README.md
+│       ├── libraries.zip
+│       ├── mqtt aws iot core
+│       └── mqtt hivemq
 ├── datasets/
+│   └── README.md
 ├── diagrams/
 ├── docs/
-├── lambda/
-├── libraries/
+│   ├── 01-project-overview.md
+│   ├── 02-system-architecture.md
+│   ├── 03-hardware-setup.md
+│   ├── 04-cloud-architecture.md
+│   ├── 05-data-pipeline.md
+│   ├── 06-machine-learning-pipeline.md
+│   ├── 07-database-design.md
+│   ├── 08-dashboard-development.md
+│   ├── 09-deployment-guide.md
+│   ├── 10-testing-validation.md
+│   ├── 11-challenges-and-solutions.md
+│   └── 12-future-work.md
 ├── screenshots/
-└── sagemaker/
+├── .gitignore
+└── README.md
 ```
 
-The directory structure above provides a general overview. Some directories may contain additional files or configuration examples.
+### Directory Descriptions
 
 | Directory | Description |
 |---|---|
-| `code/esp32/` | ESP32 code for connecting EmotiBit and transmitting sensor data through MQTT |
-| `dashboard/` | Streamlit dashboard source code and related files |
-| `datasets/` | Dataset information and instructions for accessing publicly available data |
-| `diagrams/` | System architecture, data flow, and design diagrams |
-| `docs/` | Project documentation, implementation notes, setup guides, and testing information |
-| `lambda/` | AWS Lambda code examples and related implementation files |
-| `libraries/` | Supporting libraries or library resources, where included |
-| `screenshots/` | Dashboard screenshots and sample session reports |
-| `sagemaker/` | Machine learning training, evaluation, inference, and deployment examples |
+| [`code/esp32/`](code/esp32/) | Contains the ESP32 code used to connect EmotiBit and transmit sensor data through MQTT. Two approaches are provided: AWS IoT Core and HiveMQ. The directory also includes a supporting library ZIP and setup instructions. |
+| [`code/aws/sagemaker/`](code/aws/sagemaker/) | Contains documentation and selected code examples for machine learning training, evaluation, model packaging, inference, and deployment using Amazon SageMaker. |
+| [`code/aws/lambda/`](code/aws/lambda/) | Contains AWS Lambda code used for data processing and integration with the machine learning pipeline. |
+| [`code/aws/dashboard/prototype/`](code/aws/dashboard/prototype/) | Contains the Python files used to build the individual pages and UI components of the Streamlit dashboard. |
+| [`code/aws/dashboard/README.md`](code/aws/dashboard/README.md) | Explains the dashboard prototype, its setup, and the configuration required to connect it to a user's own database and AWS environment. |
+| [`datasets/`](datasets/) | Contains dataset information and instructions for accessing publicly available datasets. The private EmotiBit dataset is not included. |
+| [`diagrams/`](diagrams/) | Contains diagrams illustrating the system architecture, data flow, and other project designs. |
+| [`docs/`](docs/) | Contains detailed project documentation covering the system overview, hardware setup, cloud architecture, data pipeline, machine learning, database design, dashboard development, deployment, testing, challenges, and future work. |
+| [`screenshots/`](screenshots/) | Contains screenshots of the dashboard pages and sample session reports to demonstrate the prototype interface. |
+
+### Additional Notes
+
+The repository is organised this way to make it easier to explore the different components of EmoSI without needing to understand the entire system at once.
+
+Some directories contain complete source files, while others provide selected code examples or documentation. Users may need to configure their own hardware, dependencies, database connections, and AWS resources before running the system in their environment.
 
 ## Dataset Information
 
