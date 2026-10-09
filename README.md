@@ -163,7 +163,7 @@ See [`dashboard/`](dashboard/) for the dashboard code and [`docs/08-dashboard-de
 For a better understanding of how EmoSI works, you can watch the project demonstration video below. The video provides a visual overview of the prototype, its features, and how the system is used.
 
 **YouTube Video:** [Watch the EmoSI Project Demonstration]([PASTE_YOUR_YOUTUBE_LINK_HERE](https://youtu.be/tHqJS0l7D4U))
-
+ 
 ## Repository Structure
 
 The repository is organised into several directories to separate the ESP32 code, AWS implementation, dashboard, datasets, documentation, and visual references.
