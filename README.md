@@ -152,7 +152,7 @@ The dashboard includes interface components for:
 
 The repository includes screenshots to help users understand the intended interface and workflow.
 
-Some UI elements and displayed values are hardcoded for prototype demonstration purposes. This allows users to explore the interface and understand how the dashboard is organised without requiring access to my private database or AWS configuration.
+Some uploaded UI elements and displayed values are hardcoded for prototype demonstration purposes. This allows users to explore the interface and understand how the dashboard is organised without requiring access to my private database or AWS configuration.
 
 To use the dashboard as a fully functional system, users need to connect it to their own database and configure the relevant AWS services so the interface can retrieve and display actual data.
 
