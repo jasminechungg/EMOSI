@@ -1,0 +1,288 @@
+#include <Arduino.h>
+#include "EmotiBit.h"
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <time.h>
+
+
+// ---------- Wi-Fi ----------
+const char* ssid = "wifi name";
+const char* password = "wifi password";
+
+
+// ---------- AWS IoT ----------
+const char* mqtt_server = "AWS IoT Core ATS device data endpoint";
+const int mqtt_port = "port";
+
+
+// ---------- Certificates ----------
+const char* root_ca = R"EOF(
+-----BEGIN CERTIFICATE-----
+
+"replace your aws root certificate here"
+
+-----END CERTIFICATE-----
+)EOF";
+
+
+const char* device_cert = R"KEY(
+-----BEGIN CERTIFICATE-----
+
+"replace your aws device certificate here"
+
+-----END CERTIFICATE-----
+)KEY";
+
+
+const char* private_key = R"KEY(
+-----BEGIN RSA PRIVATE KEY-----
+
+"replace your private key here"
+
+-----END RSA PRIVATE KEY-----
+)KEY";
+
+
+// ---------- MQTT ----------
+WiFiClientSecure espClient;
+PubSubClient client(espClient);
+
+
+// ---------- EmotiBit ----------
+EmotiBit emotibit;
+const size_t dataSize = EmotiBit::MAX_DATA_BUFFER_SIZE;
+float data[dataSize];
+
+
+// ---------- Sensors ----------
+struct Sensor {
+  EmotiBit::DataType type;
+  const char* name;
+};
+
+
+Sensor sensors[17] = {
+  {EmotiBit::DataType::PPG_INFRARED,   "PPG_INFRARED"},
+  {EmotiBit::DataType::PPG_RED,        "PPG_RED"},
+  {EmotiBit::DataType::PPG_GREEN,      "PPG_GREEN"},
+  {EmotiBit::DataType::EDA,            "EDA"},
+  {EmotiBit::DataType::EDL,            "EDL"},
+  {EmotiBit::DataType::EDR,            "EDR"},
+  {EmotiBit::DataType::TEMPERATURE_1,  "TEMP_1"},
+  {EmotiBit::DataType::THERMOPILE,     "THERMOPILE"},
+  {EmotiBit::DataType::ACCELEROMETER_X,"ACC_X"},
+  {EmotiBit::DataType::ACCELEROMETER_Y,"ACC_Y"},
+  {EmotiBit::DataType::ACCELEROMETER_Z,"ACC_Z"},
+  {EmotiBit::DataType::GYROSCOPE_X,    "GYRO_X"},
+  {EmotiBit::DataType::GYROSCOPE_Y,    "GYRO_Y"},
+  {EmotiBit::DataType::GYROSCOPE_Z,    "GYRO_Z"},
+  {EmotiBit::DataType::MAGNETOMETER_X, "MAG_X"},
+  {EmotiBit::DataType::MAGNETOMETER_Y, "MAG_Y"},
+  {EmotiBit::DataType::MAGNETOMETER_Z, "MAG_Z"}
+};
+
+
+// ---------- Store last values ----------
+float lastValues[17] = {0};
+bool hasValue[17] = {false};
+
+
+// ---------- Static payload buffer (avoids heap fragmentation) ----------
+// Worst case: ~600 bytes for 17 sensors with 5 decimal places
+#define PAYLOAD_BUFFER_SIZE 1024
+char payloadBuf[PAYLOAD_BUFFER_SIZE];
+
+
+// ---------- WiFi ----------
+void setupWiFi() {
+  Serial.print("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
+
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✅ WiFi connected: " + WiFi.localIP().toString());
+  } else {
+    Serial.println("\n❌ WiFi failed! Restarting...");
+    ESP.restart();
+  }
+}
+
+
+// ---------- Time ----------
+void setupTime() {
+  configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+
+
+  Serial.print("Syncing time...");
+  int attempts = 0;
+  while (time(nullptr) < 100000 && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  Serial.println(" done");
+}
+
+
+// ---------- MQTT ----------
+void connectAWS() {
+  espClient.setCACert(root_ca);
+  espClient.setCertificate(device_cert);
+  espClient.setPrivateKey(private_key);
+
+
+  // FIX 1: Buffer size MUST be set before setServer()
+  client.setBufferSize(1024);
+
+
+  // FIX 2: Increase keep-alive and socket timeout
+  client.setKeepAlive(60);
+  client.setSocketTimeout(30);
+
+
+  client.setServer(mqtt_server, mqtt_port);
+
+
+  Serial.print("Connecting to AWS IoT");
+
+
+  int attempts = 0;
+  while (!client.connected() && attempts < 5) {
+    Serial.print(".");
+    if (client.connect("emotibit-device01")) {
+      Serial.println("\n✅ AWS Connected!");
+    } else {
+      Serial.printf("\n❌ Failed, rc=%d retrying in 3s...\n", client.state());
+      delay(3000);
+      attempts++;
+    }
+  }
+
+
+  if (!client.connected()) {
+    Serial.println("❌ Could not connect to AWS after 5 attempts. Restarting...");
+    ESP.restart();
+  }
+}
+
+
+// ---------- Time Format ----------
+String getISOTime() {
+  time_t now = time(nullptr);
+  struct tm timeinfo;
+  localtime_r(&now, &timeinfo);
+
+
+  char buf[30];
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d",
+           timeinfo.tm_year + 1900,
+           timeinfo.tm_mon + 1,
+           timeinfo.tm_mday,
+           timeinfo.tm_hour,
+           timeinfo.tm_min,
+           timeinfo.tm_sec);
+  return String(buf);
+}
+
+
+// ---------- Setup ----------
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+
+  emotibit.setup("ESP32_16para");
+  Serial.println("✅ EmotiBit Ready");
+
+
+  setupWiFi();
+  setupTime();
+  connectAWS();
+}
+
+
+// ---------- Loop ----------
+void loop() {
+  emotibit.update();
+
+
+  if (!client.connected()) {
+    Serial.println("⚠️ MQTT disconnected, reconnecting...");
+    connectAWS();
+  }
+
+
+  client.loop();
+
+
+  static String lastSent = "";
+  String currentTs = getISOTime();
+
+
+  // Send once per second
+  if (currentTs != lastSent) {
+    lastSent = currentTs;
+
+
+    // FIX 3: Use snprintf into static char buffer instead of String concatenation
+    // This avoids heap fragmentation and is much safer on ESP32
+    int pos = 0;
+    pos += snprintf(payloadBuf + pos, PAYLOAD_BUFFER_SIZE - pos,
+                    "{\"device_id\":\"emotibit01\",\"time\":\"%s\"",
+                    currentTs.c_str());
+
+
+    for (int i = 0; i < 17; i++) {
+      size_t samplesAvailable = emotibit.readData(sensors[i].type, data, dataSize);
+
+
+      if (samplesAvailable > 0) {
+        lastValues[i] = data[0];
+        hasValue[i] = true;
+      }
+
+
+      if (hasValue[i]) {
+        pos += snprintf(payloadBuf + pos, PAYLOAD_BUFFER_SIZE - pos,
+                        ",\"%s\":%.5f", sensors[i].name, lastValues[i]);
+      } else {
+        pos += snprintf(payloadBuf + pos, PAYLOAD_BUFFER_SIZE - pos,
+                        ",\"%s\":0", sensors[i].name);
+      }
+
+
+      // Safety: stop if buffer is nearly full
+      if (pos >= PAYLOAD_BUFFER_SIZE - 20) {
+        Serial.println("⚠️ Payload buffer nearly full, truncating!");
+        break;
+      }
+    }
+
+
+    snprintf(payloadBuf + pos, PAYLOAD_BUFFER_SIZE - pos, "}");
+
+
+    // FIX 4: Check publish result explicitly
+    bool ok = client.publish("emotibit/device01/data", payloadBuf);
+
+
+    if (ok) {
+      Serial.println("✅ Published: " + String(payloadBuf));
+    } else {
+      Serial.printf("❌ Publish FAILED! Payload length: %d, MQTT state: %d\n",
+                    strlen(payloadBuf), client.state());
+    }
+  }
+}
+
+
+
