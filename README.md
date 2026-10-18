@@ -74,6 +74,8 @@ More details about the hardware setup and code configuration are available in [`
 
 ## System Architecture
 
+![System Architecture](../diagrams/system-architecture.PNG)
+
 EmoSI combines hardware, data transmission, cloud storage, machine learning inference, and a dashboard into one workflow.
 
 The main processing flow is:
